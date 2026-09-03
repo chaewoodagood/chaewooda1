@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 롱폼 영상 생성기 - 자막 싱크 안정화 버전</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap" rel="stylesheet">
+
+<style>
+*{box-sizing:border-box}
+
+body{
+    margin:0;
+    background:#0f1115;
+    color:#fff;
+    font-family:"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",Arial,sans-serif;
+}
+
+.container{
+    width:min(1100px,96vw);
+    margin:24px auto;
+    background:#1b1f27;
+    border-radius:20px;
+    padding:24px;
+}
+
+h1{margin:0 0 6px;font-size:26px}
+h2{margin:22px 0 10px;font-size:19px}
+
+.subtitle-top{
+    color:#9aa4b2;
+    font-size:14px;
+    margin:0 0 18px;
+    line-height:1.6;
+}
+
+label{display:block;margin:12px 0 6px;font-weight:700}
+
+input,textarea,select{
+    width:100%;
+    padding:12px;
+    background:#111;
+    color:#fff;
+    border:1px solid #333;
+    border-radius:8px;
+    font-size:16px;
+    font-family:inherit;
+}
+
+textarea{height:300px;line-height:1.8;resize:vertical}
+
+button{
+    width:100%;
+    padding:14px;
+    margin-top:12px;
+    border:none;
+    border-radius:10px;
+    background:#00c853;
+    color:#fff;
+    font-size:17px;
+    cursor:pointer;
+    font-weight:700;
+    font-family:inherit;
+}
+
+button:hover{background:#00b248}
+button:disabled{opacity:.45;cursor:not-allowed}
+
+button.secondary{background:#37414f}
+button.secondary:hover{background:#45505f}
+
+#sentences{
+    margin-top:12px;
+    padding:14px;
+    background:#111;
+    border-radius:10px;
+    white-space:pre-wrap;
+    line-height:1.9;
+    font-size:16px;
+    max-height:340px;
+    overflow:auto;
+}
+
+#sentences .warn{color:#ffd400}
+
+#status{
+    margin-top:12px;
+    padding:14px;
+    background:#111;
+    border-radius:10px;
+    font-weight:700;
+}
+
+#progress{margin-top:8px;font-size:13px;color:#c7d0db;line-height:1.6}
+
+#notice{
+    margin-top:8px;
+    font-size:13px;
+    line-height:1.6;
+    color:#ffd400;
+    white-space:pre-wrap;
+}
+
+.hint{font-size:13px;color:#b9c1cc;line-height:1.55;margin-top:6px}
+
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+.manual-guide{
+    margin-top:10px;
+    padding:14px 16px;
+    background:#252b35;
+    border-radius:8px;
+    color:#dce3eb;
+    font-size:14px;
+    line-height:1.75;
+}
+
+.manual-guide strong{color:#fff}
+
+canvas,video{
+    width:100%;
+    margin-top:16px;
+    border-radius:10px;
+    background:#000;
+    display:block;
+    aspect-ratio:16/9;
+}
+
+#download{
+    display:none;
+    color:#4fc3f7;
+    font-size:18px;
+    margin-top:14px;
+}
+
+@media(max-width:700px){.row{grid-template-columns:1fr}}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h1>AI 롱폼 영상 생성기 (16:9)</h1>
+<p class="subtitle-top">ElevenLabs 문자 단위 타임스탬프로 자막을 붙이고, 화면과 음성을 한 번에 녹화합니다.</p>
+
+<h2>최초 한 번만 설정</h2>
+
+<label for="apiKey">ElevenLabs API Key</label>
+<input id="apiKey" type="password" placeholder="sk_...">
+
+<label for="voiceId">Voice ID</label>
+<input id="voiceId" placeholder="예: JBFqnCBsd6RMkjVDRZzb">
+
+<div class="row">
+    <div>
+        <label for="speechSpeed">말하기 속도</label>
+        <select id="speechSpeed">
+            <option value="0.8">0.8x</option>
+            <option value="0.9">0.9x</option>
+            <option value="1" selected>1.0x</option>
+            <option value="1.1">1.1x</option>
+            <option value="1.2">1.2x</option>
+        </select>
+    </div>
+    <div>
+        <label for="imageInput">배경 이미지</label>
+        <input id="imageInput" type="file" accept="image/*">
+    </div>
+</div>
+
+<div class="hint">이미지는 자동으로 1920×1080에 맞춰 최적화됩니다.</div>
+
+<button id="saveButton">설정 저장</button>
+
+<hr style="margin:25px 0;border-color:#333">
+
+<h2>대본</h2>
+
+<div class="manual-guide">
+<strong>자막은 항상 한 줄로 표시됩니다.</strong><br>
+Enter로 나눈 한 줄이 자막 카드 하나가 됩니다.<br>
+문장이 길면 글자 크기가 자동으로 줄어들며 한 줄을 유지합니다.<br>
+<strong>글자가 너무 작아지는 줄은 아래 검사 결과에서 노란색으로 알려드립니다.</strong>
+</div>
+
+<textarea id="script" placeholder="예시:
+
+여러분
+이 증상이 있다면
+
+절대 그냥
+넘기시면 안 됩니다.
+
+특히 60대 이후에는
+더욱 주의하셔야 합니다."></textarea>
+
+<button id="applyButton" class="secondary">자막 검사 및 적용</button>
+
+<div id="sentences"></div>
+
+<button id="generateButton">16:9 롱폼 영상 생성</button>
+
+<div id="status">대기중</div>
+<div id="progress"></div>
+<div id="notice"></div>
+
+<h2>실시간 렌더링 화면</h2>
+<canvas id="canvas" width="1920" height="1080"></canvas>
+<div class="hint">영상이 만들어지는 동안 자막이 실제로 바뀌는지 여기서 바로 확인할 수 있습니다.</div>
+
+<h2>결과 영상</h2>
+<video id="video" controls playsinline></video>
+<a id="download" download="longform_16x9.webm">📥 영상 다운로드</a>
+
+</div>
+
+<script>
+"use strict";
+
+/* =========================================================
+   0. DOM 참조
+========================================================= */
+const apiInput       = document.getElementById("apiKey");
+const voiceInput     = document.getElementById("voiceId");
+const speedInput     = document.getElementById("speechSpeed");
+const imageInput     = document.getElementById("imageInput");
+const scriptInput    = document.getElementById("script");
+const sentencesBox   = document.getElementById("sentences");
+const statusBox      = document.getElementById("status");
+const progressBox    = document.getElementById("progress");
+const noticeBox      = document.getElementById("notice");
+const video          = document.getElementById("video");
+const downloadLink   = document.getElementById("download");
+const canvas         = document.getElementById("canvas");
+const ctx            = canvas.getContext("2d", { alpha: false });
+const saveButton     = document.getElementById("saveButton");
+const applyButton    = document.getElementById("applyButton");
+const generateButton = document.getElementById("generateButton");
+
+/* =========================================================
+   1. 저장소
+========================================================= */
+const memoryStorage = {};
+
+function safeGet(key){
+    try{
+        const v = localStorage.getItem(key);
+        if(v !== null) return v;
+    }catch(e){}
+    return memoryStorage[key] || null;
+}
+
+function safeSet(key, value){
+    memoryStorage[key] = String(value);
+    try{ localStorage.setItem(key, String(value)); }catch(e){}
+}
+
+let currentImageData = safeGet("doctor_image") || "";
+apiInput.value   = safeGet("eleven_api") || "";
+voiceInput.value = safeGet("voice_id") || "";
+speedInput.value = safeGet("eleven_speed") || "1";
+
+/* =========================================================
+   2. 공통 유틸
+========================================================= */
+function setStatus(text, progress = "", notice = ""){
+    statusBox.textContent   = text;
+    progressBox.textContent = progress;
+    noticeBox.textContent   = notice;
+}
+
+function sleep(ms){
+    return new Promise(r => setTimeout(r, ms));
+}
+
+function clamp(v, min, max){
+    return Math.min(max, Math.max(min, v));
+}
+
+function isNum(v){
+    return Number.isFinite(Number(v));
+}
+
+function formatTime(sec){
+    sec = Math.max(0, Number(sec) || 0);
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/* =========================================================
+   3. 대본 → 줄 목록
+========================================================= */
+function getManualLines(){
+    return scriptInput.value
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .split("\n")
+        .map(l => l.trim())
+        .filter(l => l.length > 0);
+}
+
+/* =========================================================
+   4. 이미지 처리
+========================================================= */
+function fileToDataURL(file){
+    return new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload  = () => resolve(r.result);
+        r.onerror = () => reject(new Error("이미지를 읽지 못했습니다."));
+        r.readAsDataURL(file);
+    });
+}
+
+function loadImage(src){
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload  = () => resolve(img);
+        img.onerror = () => reject(new Error("이미지를 불러오지 못했습니다."));
+        img.src = src;
+    });
+}
+
+function drawCover(c, img, W, H){
+    const scale = Math.max(W / img.width, H / img.height);
+    const w = img.width * scale;
+    const h = img.height * scale;
+    c.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
+}
+
+async function optimizeImage(file){
+    const img = await loadImage(await fileToDataURL(file));
+    const c = document.createElement("canvas");
+    c.width = 1920;
+    c.height = 1080;
+    const cc = c.getContext("2d", { alpha: false });
+    cc.fillStyle = "#000";
+    cc.fillRect(0, 0, 1920, 1080);
+    drawCover(cc, img, 1920, 1080);
+    return c.toDataURL("image/jpeg", 0.9);
+}
+
+/* =========================================================
+   5. 설정 저장
+========================================================= */
+async function saveSettings(){
+    const api   = apiInput.value.trim();
+    const voice = voiceInput.value.trim();
+
+    if(!api || !voice){
+        setStatus("설정을 저장하지 못했습니다.", "API Key와 Voice ID를 모두 입력해주세요.");
+        return;
+    }
+
+    safeSet("eleven_api", api);
+    safeSet("voice_id", voice);
+    safeSet("eleven_speed", speedInput.value);
+
+    if(imageInput.files[0]){
+        setStatus("이미지를 저장하는 중입니다...");
+        try{
+            currentImageData = await optimizeImage(imageInput.files[0]);
+            safeSet("doctor_image", currentImageData);
+        }catch(e){
+            setStatus("이미지 저장 실패", e.message);
+            return;
+        }
+    }
+
+    setStatus("설정을 저장했습니다.", currentImageData ? "이미지 포함" : "이미지가 아직 없습니다.");
+}
+
+/* =========================================================
+   6. 자막 스타일 상수
+========================================================= */
+const SUBTITLE_FONT      = "'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',Arial,sans-serif";
+const SUB_BASE_SIZE      = 116;   // 기본(최대) 글자 크기
+const SUB_MAX_WIDTH      = 1640;  // 한 줄이 넘을 수 없는 폭
+const SUB_MAX_BOX_WIDTH  = 1780;  // 배경 박스 최대 폭
+const SUB_CENTER_Y       = 805;   // 자막 세로 중심
+const SUB_READABLE_SIZE  = 62;    // 이 아래로 작아지면 "너무 긴 줄" 경고
+
+const RED_KEYWORDS = ["위험","주의","경고","심각","치명적","혈관","혈전","막힘","뇌졸중","심근경색","당뇨","암","염증","통증","출혈"];
+const GREEN_KEYWORDS = ["건강","예방","관리","운동","식습관","영양","꾸준히","도움","회복","유지"];
+const YELLOW_KEYWORDS = ["가장","핵심","중요","반드시","절대","10%","20%","30%","50%","100%"];
+
+function containsAny(text, list){
+    return list.some(v => text.includes(v));
+}
+
+function getLineColor(text){
+    if(containsAny(text, RED_KEYWORDS)) return "#ff3030";
+    if(containsAny(text, YELLOW_KEYWORDS) || /\d+(?:\.\d+)?\s*(?:%|배|개월|년)/.test(text)) return "#ffd400";
+    if(containsAny(text, GREEN_KEYWORDS)) return "#42e95f";
+    return "#ffffff";
+}
+
+/* =========================================================
+   7. 자막 레이아웃 (캐시 사용)
+   - 매 프레임 폭을 다시 재면 프레임이 밀려 자막이 멈춘 것처럼 보입니다.
+   - 그래서 줄마다 한 번만 계산하고 Map에 저장해 재사용합니다.
+========================================================= */
+const layoutCache = new Map();
+
+function setSubtitleFont(c, size){
+    c.font = `900 ${size}px ${SUBTITLE_FONT}`;
+}
+
+function measureAt(c, text, size){
+    setSubtitleFont(c, size);
+    return c.measureText(text).width;
+}
+
+function normalizeSubtitleText(text){
+    return String(text || "").replace(/\s+/g, " ").trim();
+}
+
+function getSubtitleLayout(c, rawText){
+    const text = normalizeSubtitleText(rawText);
+    if(!text) return null;
+
+    const cached = layoutCache.get(text);
+    if(cached) return cached;
+
+    // 캔버스 글자 폭은 폰트 크기에 거의 정비례하므로
+    // 100px에서 한 번만 재고 필요한 크기를 곧바로 계산합니다.
+    const refWidth = Math.max(1, measureAt(c, text, 100));
+    let size = clamp(Math.floor(100 * SUB_MAX_WIDTH / refWidth), 12, SUB_BASE_SIZE);
+
+    // 반올림 오차 보정 (최대 12회)
+    let guard = 0;
+    while(size > 12 && measureAt(c, text, size) > SUB_MAX_WIDTH && guard++ < 12){
+        size -= 1;
+    }
+
+    const layout = {
+        text,
+        fontSize: size,
+        width: measureAt(c, text, size),
+        color: getLineColor(text)
+    };
+
+    layoutCache.set(text, layout);
+    return layout;
+}
+
+/* =========================================================
+   8. 자막 그리기
+========================================================= */
+function roundRectPath(c, x, y, w, h, r){
+    if(typeof c.roundRect === "function"){
+        c.beginPath();
+        c.roundRect(x, y, w, h, r);
+        return;
+    }
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.lineTo(x + w - r, y);
+    c.quadraticCurveTo(x + w, y, x + w, y + r);
+    c.lineTo(x + w, y + h - r);
+    c.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    c.lineTo(x + r, y + h);
+    c.quadraticCurveTo(x, y + h, x, y + h - r);
+    c.lineTo(x, y + r);
+    c.quadraticCurveTo(x, y, x + r, y);
+    c.closePath();
+}
+
+function drawSubtitle(c, layout){
+    const paddingX = 42;
+    const paddingY = 28;
+
+    const boxWidth  = Math.min(layout.width + paddingX * 2, SUB_MAX_BOX_WIDTH);
+    const boxHeight = layout.fontSize + paddingY * 2;
+    const x = 960 - boxWidth / 2;
+    const y = SUB_CENTER_Y - boxHeight / 2;
+
+    c.save();
+    c.fillStyle = "rgba(0,0,0,0.55)";
+    roundRectPath(c, x, y, boxWidth, boxHeight, 20);
+    c.fill();
+    c.restore();
+
+    setSubtitleFont(c, layout.fontSize);
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.lineJoin = "round";
+    c.lineCap = "round";
+
+    c.shadowColor = "rgba(0,0,0,.95)";
+    c.shadowBlur = 4;
+    c.shadowOffsetX = 2;
+    c.shadowOffsetY = 3;
+
+    c.strokeStyle = "#000";
+    c.lineWidth = Math.max(12, Math.round(layout.fontSize * 0.13));
+    c.strokeText(layout.text, 960, SUB_CENTER_Y);
+
+    c.fillStyle = layout.color;
+    c.fillText(layout.text, 960, SUB_CENTER_Y);
+
+    c.shadowBlur = 0;
+    c.shadowOffsetX = 0;
+    c.shadowOffsetY = 0;
+}
+
+/* =========================================================
+   9. 배경 프레임 캐시
+   - 이미지와 고지문은 매번 다시 그릴 필요가 없습니다.
+   - 한 번 그려 두고 매 프레임 복사만 하면 렌더링이 훨씬 가벼워집니다.
+========================================================= */
+let backgroundCanvas = null;
+
+function buildBackground(img){
+    const c = document.createElement("canvas");
+    c.width = 1920;
+    c.height = 1080;
+    const cc = c.getContext("2d", { alpha: false });
+
+    cc.fillStyle = "#000";
+    cc.fillRect(0, 0, 1920, 1080);
+    drawCover(cc, img, 1920, 1080);
+
+    cc.font = "16px Arial,'Noto Sans KR','Malgun Gothic'";
+    cc.textAlign = "right";
+    cc.textBaseline = "alphabetic";
+    cc.fillStyle = "rgba(255,255,255,.82)";
+    cc.shadowColor = "rgba(0,0,0,.95)";
+    cc.shadowBlur = 4;
+    cc.shadowOffsetX = 1;
+    cc.shadowOffsetY = 1;
+    cc.fillText("AI 제작 콘텐츠이며 논문을 근거로 전달하는 건강정보입니다.", 1880, 28);
+    cc.fillText("개인에 따라 효과는 다를 수 있으며, 특정한 결과를 보장할 수 없습니다.", 1880, 49);
+    cc.shadowBlur = 0;
+
+    backgroundCanvas = c;
+}
+
+function drawFrame(subtitleLayout){
+    if(backgroundCanvas){
+        ctx.drawImage(backgroundCanvas, 0, 0);
+    }else{
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, 1920, 1080);
+    }
+    if(subtitleLayout) drawSubtitle(ctx, subtitleLayout);
+}
+
+/* =========================================================
+   10. 자막 검사 및 적용
+========================================================= */
+async function applyManualSubtitles(){
+    const lines = getManualLines();
+
+    if(!lines.length){
+        sentencesBox.textContent = "";
+        setStatus("대본이 비어 있습니다.", "한 줄에 자막 하나씩 입력해주세요.");
+        return;
+    }
+
+    await ensureFontReady();
+
+    sentencesBox.innerHTML = "";
+    let tooLong = 0;
+
+    lines.forEach((line, i) => {
+        const layout = getSubtitleLayout(ctx, line);
+        const div = document.createElement("div");
+        const small = layout.fontSize < SUB_READABLE_SIZE;
+        if(small) tooLong++;
+        div.className = small ? "warn" : "";
+        div.textContent = `${String(i + 1).padStart(3, " ")}. ${line}` + (small ? `  ← 글자 ${layout.fontSize}px, 나누는 것을 권장합니다` : "");
+        sentencesBox.appendChild(div);
+    });
+
+    setStatus(
+        `자막 ${lines.length}줄을 적용했습니다.`,
+        "입력한 줄바꿈 그대로 사용됩니다.",
+        tooLong ? `너무 긴 줄 ${tooLong}개가 있습니다. 노란색 줄을 짧게 나누면 시니어 가독성이 좋아집니다.` : ""
+    );
+}
+
+/* =========================================================
+   11. 배치 나누기
+   - TTS를 한 번에 너무 길게 요청하면 뒤쪽 오차가 커집니다.
+   - 반대로 너무 잘게 나누면 이어붙이는 지점이 많아집니다.
+========================================================= */
+function buildBatches(lines, maxChars = 400, maxLines = 8){
+    const batches = [];
+    let current = [];
+    let len = 0;
+
+    for(const line of lines){
+        const lineLength = Array.from(line).length;
+        const add = (current.length ? 1 : 0) + lineLength;
+
+        if(current.length && (len + add > maxChars || current.length >= maxLines)){
+            batches.push(current);
+            current = [];
+            len = 0;
+        }
+
+        current.push(line);
+        len += add;
+    }
+
+    if(current.length) batches.push(current);
+    return batches;
+}
+
+function buildTextAndRanges(lines){
+    let text = "";
+    const ranges = [];
+
+    lines.forEach((line, index) => {
+        if(index > 0) text += " ";
+        const start = Array.from(text).length;
+        text += line;
+        const end = Array.from(text).length;
+        ranges.push({ text: line, startIndex: start, endIndex: end });
+    });
+
+    return { text, ranges };
+}
+
+/* =========================================================
+   12. ElevenLabs 요청
+========================================================= */
+async function requestTtsBatch(api, voice, lines, speed){
+    const data = buildTextAndRanges(lines);
+
+    const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}/with-timestamps?output_format=mp3_44100_128`;
+
+    const response = await fetch(url, {
+        method: "POST",
+        headers: {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "xi-api-key": api
+        },
+        body: JSON.stringify({
+            text: data.text,
+            model_id: "eleven_multilingual_v2",
+            voice_settings: { speed: clamp(Number(speed) || 1, 0.7, 1.2) }
+        })
+    });
+
+    if(!response.ok){
+        let message = `ElevenLabs 응답 오류 (${response.status})`;
+        try{
+            const err = await response.json();
+            if(err?.detail?.message) message = err.detail.message;
+            else if(typeof err?.detail === "string") message = err.detail;
+        }catch(e){}
+        throw new Error(message);
+    }
+
+    const json = await response.json();
+    if(!json?.audio_base64) throw new Error("음성 데이터가 비어 있습니다.");
+    return json;
+}
+
+/* =========================================================
+   13. 오디오 디코딩 / 이어붙이기
+========================================================= */
+function base64ToArrayBuffer(base64){
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for(let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+}
+
+function decodeAudio(audioCtx, arrayBuffer){
+    return new Promise((resolve, reject) => {
+        // 콜백형과 Promise형을 모두 지원하도록 처리
+        const p = audioCtx.decodeAudioData(arrayBuffer.slice(0), resolve, reject);
+        if(p && typeof p.then === "function") p.then(resolve, reject);
+    });
+}
+
+function concatenateAudioBuffers(audioCtx, buffers){
+    const channels = Math.max(...buffers.map(b => b.numberOfChannels));
+    const total = buffers.reduce((s, b) => s + b.length, 0);
+    const out = audioCtx.createBuffer(channels, Math.max(1, total), audioCtx.sampleRate);
+
+    let offset = 0;
+    for(const buffer of buffers){
+        for(let ch = 0; ch < channels; ch++){
+            out.getChannelData(ch).set(
+                buffer.getChannelData(Math.min(ch, buffer.numberOfChannels - 1)),
+                offset
+            );
+        }
+        offset += buffer.length;
+    }
+    return out;
+}
+
+/* MP3 디코딩 시 앞쪽에 생기는 무음(인코더 패딩)을 실제로 측정합니다. */
+function detectLeadingSilence(buffer, threshold = 0.01){
+    const data = buffer.getChannelData(0);
+    const sr = buffer.sampleRate;
+    const win = Math.max(1, Math.floor(sr * 0.005));
+    const limit = Math.min(data.length, Math.floor(sr * 2));
+
+    for(let i = 0; i < limit; i += win){
+        let peak = 0;
+        const end = Math.min(limit, i + win);
+        for(let j = i; j < end; j++){
+            const v = Math.abs(data[j]);
+            if(v > peak) peak = v;
+        }
+        if(peak > threshold) return i / sr;
+    }
+    return 0;
+}
+
+/* =========================================================
+   14. 타임스탬프 해석
+========================================================= */
+function getAlignmentArrays(alignment){
+    const chars  = Array.isArray(alignment?.characters) ? alignment.characters : [];
+    const starts = Array.isArray(alignment?.character_start_times_seconds) ? alignment.character_start_times_seconds : [];
+    const ends   = Array.isArray(alignment?.character_end_times_seconds) ? alignment.character_end_times_seconds : [];
+    const valid  = chars.length > 0 && starts.length === chars.length && ends.length === chars.length;
+    return { chars, starts, ends, valid };
+}
+
+function normalizeAlignmentChar(ch){
+    if(ch === undefined || ch === null) return "";
+    const s = String(ch);
+    if(/\s/.test(s)) return " ";
+    return s.replace(/[""]/g, '"').replace(/['']/g, "'").replace(/[–—]/g, "-");
+}
+
+function firstSpeechTime(alignment){
+    const a = getAlignmentArrays(alignment);
+    if(!a.valid) return 0;
+    for(let i = 0; i < a.chars.length; i++){
+        if(!/\s/.test(String(a.chars[i] ?? "")) && isNum(a.starts[i])){
+            return Math.max(0, Number(a.starts[i]));
+        }
+    }
+    return 0;
+}
+
+function trimSpaces(chars, first, last){
+    while(first <= last && /\s/.test(String(chars[first] ?? ""))) first++;
+    while(last >= first && /\s/.test(String(chars[last] ?? ""))) last--;
+    return [first, last];
+}
+
+/* 1순위: 우리가 보낸 문자 인덱스를 그대로 사용 */
+function timingsByIndex(lines, alignment, offset, duration){
+    const a = getAlignmentArrays(alignment);
+    if(!a.valid) return null;
+
+    const data = buildTextAndRanges(lines);
+    if(a.chars.length !== Array.from(data.text).length) return null;
+
+    const out = [];
+    for(const range of data.ranges){
+        const [first, last] = trimSpaces(a.chars, range.startIndex, range.endIndex - 1);
+        if(first > last || !isNum(a.starts[first]) || !isNum(a.ends[last])) return null;
+
+        const start = Math.max(0, Number(a.starts[first]));
+        const end = clamp(Number(a.ends[last]), start + 0.04, Math.max(0.08, duration));
+        out.push({ text: range.text, start: offset + start, end: offset + end, mode: "index" });
+    }
+    return out;
+}
+
+/* 2순위: 문자열을 순서대로 찾아 매칭 */
+function timingsBySearch(lines, alignment, offset, duration){
+    const a = getAlignmentArrays(alignment);
+    if(!a.valid) return null;
+
+    const source = a.chars.map(normalizeAlignmentChar);
+    const out = [];
+    let from = 0;
+
+    for(const line of lines){
+        const target = Array.from(line).map(normalizeAlignmentChar).filter(ch => ch !== "");
+        if(!target.length) return null;
+
+        let found = -1;
+        for(let i = Math.max(0, from); i <= source.length - target.length; i++){
+            let ok = true;
+            for(let j = 0; j < target.length; j++){
+                if(source[i + j] !== target[j]){ ok = false; break; }
+            }
+            if(ok){ found = i; break; }
+        }
+        if(found < 0) return null;
+
+        const [first, last] = trimSpaces(a.chars, found, found + target.length - 1);
+        if(first > last || !isNum(a.starts[first]) || !isNum(a.ends[last])) return null;
+
+        const start = Math.max(0, Number(a.starts[first]));
+        const end = clamp(Number(a.ends[last]), start + 0.04, Math.max(0.08, duration));
+        out.push({ text: line, start: offset + start, end: offset + end, mode: "search" });
+        from = found + target.length;
+    }
+    return out;
+}
+
+/* 3순위: 글자 수 가중치로 추정 (오류로 중단하지 않고 계속 진행) */
+function timingsByEstimate(lines, alignment, offset, duration){
+    const safeDuration = Math.max(0.25, Number(duration) || 0.25);
+    const speechStart = clamp(firstSpeechTime(alignment), 0, safeDuration * 0.5);
+    const usable = Math.max(0.2, safeDuration - speechStart);
+
+    const weights = lines.map(line => {
+        const compact = Array.from(line.replace(/\s/g, ""));
+        const punctuation = (line.match(/[,.!?…:;，。！？]/g) || []).length;
+        return Math.max(1, compact.length) + punctuation * 1.5;
+    });
+    const total = weights.reduce((s, v) => s + v, 0) || 1;
+
+    let cursor = speechStart;
+    return lines.map((line, i) => {
+        const start = cursor;
+        cursor += usable * (weights[i] / total);
+        const end = clamp(cursor, start + 0.08, safeDuration);
+        return { text: line, start: offset + start, end: offset + end, mode: "estimate" };
+    });
+}
+
+function buildLineTimings(lines, result, offset, duration){
+    const original = result.alignment || {};
+    const normalized = result.normalized_alignment || {};
+
+    return timingsByIndex(lines, original, offset, duration)
+        || timingsBySearch(lines, original, offset, duration)
+        || timingsBySearch(lines, normalized, offset, duration)
+        || timingsByEstimate(lines, original, offset, duration);
+}
+
+/* =========================================================
+   15. 타이밍 보정
+   - 예전 코드는 값이 이상하면 예외를 던져 생성 자체를 중단했습니다.
+   - 여기서는 중단하지 않고 순서와 최소 간격을 강제로 맞춥니다.
+========================================================= */
+const MIN_LINE_GAP = 0.14;
+
+function repairTimings(timings, lines, totalDuration){
+    const fixed = [];
+    let prev = -1;
+    let repaired = 0;
+
+    for(let i = 0; i < lines.length; i++){
+        const src = timings[i];
+        let start = src && isNum(src.start) ? Number(src.start) : NaN;
+
+        if(!Number.isFinite(start) || start < 0){
+            start = prev < 0 ? 0 : prev + MIN_LINE_GAP;
+            repaired++;
+        }
+        if(prev >= 0 && start < prev + MIN_LINE_GAP){
+            start = prev + MIN_LINE_GAP;
+            repaired++;
+        }
+
+        fixed.push({
+            text: lines[i],
+            start,
+            mode: src?.mode || "repair"
+        });
+        prev = start;
+    }
+
+    // 첫 자막은 영상 시작과 동시에 보이도록 0초로 맞춥니다.
+    if(fixed.length) fixed[0].start = 0;
+
+    // 표시 종료 시각: 다음 자막이 시작하는 순간까지
+    const total = Math.max(0, Number(totalDuration) || 0);
+    for(let i = 0; i < fixed.length; i++){
+        fixed[i].displayEnd = (i < fixed.length - 1)
+            ? Math.max(fixed[i].start + 0.05, fixed[i + 1].start)
+            : total + 0.5;
+    }
+
+    return { timings: fixed, repaired };
+}
+
+/* 시간이 앞으로만 흐른다는 점을 이용해 O(1)로 현재 자막을 찾습니다. */
+function createSubtitlePicker(timings){
+    let cursor = 0;
+    return function(now){
+        while(cursor + 1 < timings.length && now >= timings[cursor + 1].start) cursor++;
+        while(cursor > 0 && now < timings[cursor].start) cursor--;
+        return timings[cursor] || null;
+    };
+}
+
+/* =========================================================
+   16. 녹화기
+========================================================= */
+function createRecorder(stream){
+    if(typeof MediaRecorder === "undefined"){
+        throw new Error("이 브라우저는 화면 녹화를 지원하지 않습니다. 크롬을 사용해주세요.");
+    }
+
+    const candidates = [
+        { mimeType: "video/webm;codecs=vp9,opus", videoBitsPerSecond: 8000000, audioBitsPerSecond: 128000 },
+        { mimeType: "video/webm;codecs=vp8,opus", videoBitsPerSecond: 8000000, audioBitsPerSecond: 128000 },
+        { mimeType: "video/webm", videoBitsPerSecond: 8000000 },
+        {}
+    ];
+
+    for(const opt of candidates){
+        try{
+            if(opt.mimeType && MediaRecorder.isTypeSupported && !MediaRecorder.isTypeSupported(opt.mimeType)) continue;
+            return new MediaRecorder(stream, opt);
+        }catch(e){}
+    }
+    throw new Error("녹화기를 만들지 못했습니다.");
+}
+
+/* =========================================================
+   17. 폰트 준비
+========================================================= */
+let fontReady = false;
+
+async function ensureFontReady(){
+    if(fontReady) return;
+    try{
+        await Promise.all([
+            document.fonts.load("900 116px 'Noto Sans KR'"),
+            document.fonts.load("900 60px 'Noto Sans KR'")
+        ]);
+        await document.fonts.ready;
+    }catch(e){
+        console.warn("폰트 로딩 확인 실패, 대체 폰트로 진행합니다.", e);
+    }
+    fontReady = true;
+    layoutCache.clear(); // 폰트가 바뀌면 이전 폭 계산은 무효
+}
+
+/* =========================================================
+   18. 영상 생성
+========================================================= */
+let lastObjectUrl = "";
+
+async function generate(){
+    let audioContext = null;
+    let recorder = null;
+    let sourceNode = null;
+    let videoStream = null;
+    let mixedStream = null;
+    let frameId = null;
+    let visibilityHandler = null;
+    let pausedByVisibility = false;
+
+    generateButton.disabled = true;
+    applyButton.disabled = true;
+    saveButton.disabled = true;
+    downloadLink.style.display = "none";
+
+    try{
+        await ensureFontReady();
+
+        const api   = apiInput.value.trim() || safeGet("eleven_api");
+        const voice = voiceInput.value.trim() || safeGet("voice_id");
+        const speed = speedInput.value || safeGet("eleven_speed") || "1";
+        const image = currentImageData || safeGet("doctor_image");
+
+        if(!api || !voice || !image){
+            throw new Error("API Key, Voice ID, 이미지를 먼저 저장해주세요.");
+        }
+
+        const lines = getManualLines();
+        if(!lines.length) throw new Error("대본을 입력해주세요.");
+
+        await applyManualSubtitles();
+
+        const img = await loadImage(image);
+        buildBackground(img);
+        drawFrame(null);
+
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        if(audioContext.state === "suspended") await audioContext.resume();
+
+        /* --- 1단계: 음성 생성 --- */
+        const batches = buildBatches(lines);
+        const buffers = [];
+        const rawTimings = [];
+        let offset = 0;
+        const modeCount = { index: 0, search: 0, estimate: 0 };
+
+        setStatus("1/2 음성 생성 중...", `총 ${batches.length}개 구간`);
+
+        for(let i = 0; i < batches.length; i++){
+            setStatus("1/2 음성 생성 중...", `${i + 1} / ${batches.length} 구간`);
+
+            const result = await requestTtsBatch(api, voice, batches[i], speed);
+            const decoded = await decodeAudio(audioContext, base64ToArrayBuffer(result.audio_base64));
+
+            // MP3 디코딩 패딩 보정: 실제 소리가 시작된 시점과 타임스탬프의 차이만큼 밀어줍니다.
+            const alignStart = firstSpeechTime(result.alignment || {});
+            const audioStart = detectLeadingSilence(decoded);
+            const correction = clamp(audioStart - alignStart, 0, 0.12);
+
+            const batchTimings = buildLineTimings(batches[i], result, offset + correction, decoded.duration);
+            batchTimings.forEach(t => { if(modeCount[t.mode] !== undefined) modeCount[t.mode]++; });
+
+            buffers.push(decoded);
+            rawTimings.push(...batchTimings);
+            offset += decoded.duration;
+
+            await sleep(80);
+        }
+
+        const finalAudio = concatenateAudioBuffers(audioContext, buffers);
+        const { timings, repaired } = repairTimings(rawTimings, lines, finalAudio.duration);
+
+        console.table(timings.map((t, i) => ({
+            no: i + 1,
+            text: t.text,
+            start: Number(t.start.toFixed(3)),
+            displayEnd: Number(t.displayEnd.toFixed(3)),
+            mode: t.mode
+        })));
+
+        const warnings = [];
+        if(modeCount.estimate) warnings.push(`${modeCount.estimate}줄은 정밀 타임스탬프 대신 추정 타이밍을 사용했습니다.`);
+        if(repaired) warnings.push(`${repaired}곳의 시간 순서를 자동으로 보정했습니다.`);
+
+        setStatus(
+            "자막 싱크 계산 완료",
+            `${timings.length}줄 / 길이 ${formatTime(finalAudio.duration)}`,
+            warnings.join("\n")
+        );
+
+        /* --- 2단계: 녹화 --- */
+        videoStream = canvas.captureStream(30);
+        const destination = audioContext.createMediaStreamDestination();
+
+        sourceNode = audioContext.createBufferSource();
+        sourceNode.buffer = finalAudio;
+        sourceNode.connect(destination);
+        sourceNode.connect(audioContext.destination);
+
+        mixedStream = new MediaStream([
+            ...videoStream.getVideoTracks(),
+            ...destination.stream.getAudioTracks()
+        ]);
+
+        recorder = createRecorder(mixedStream);
+
+        const chunks = [];
+        recorder.ondataavailable = e => { if(e.data && e.data.size > 0) chunks.push(e.data); };
+        const stopped = new Promise(resolve => { recorder.onstop = resolve; });
+
+        recorder.start(1000);
+
+        // 워밍업: 녹화기가 첫 프레임을 잡을 시간을 줍니다.
+        // 이 여유가 없으면 영상 앞부분이 한 장면에 멈춘 것처럼 보입니다.
+        setStatus("2/2 영상 생성 준비 중...", "녹화기 준비");
+        for(let i = 0; i < 18; i++){
+            drawFrame(null);
+            await sleep(33);
+        }
+
+        visibilityHandler = async () => {
+            try{
+                if(document.hidden){
+                    if(recorder?.state === "recording") recorder.pause();
+                    if(audioContext?.state === "running"){
+                        await audioContext.suspend();
+                        pausedByVisibility = true;
+                    }
+                }else if(pausedByVisibility){
+                    if(recorder?.state === "paused") recorder.resume();
+                    if(audioContext?.state === "suspended") await audioContext.resume();
+                    pausedByVisibility = false;
+                }
+            }catch(e){
+                console.warn("탭 전환 동기화 처리 실패", e);
+            }
+        };
+        document.addEventListener("visibilitychange", visibilityHandler);
+
+        const startAt = audioContext.currentTime + 0.15;
+        sourceNode.start(startAt);
+
+        const pickSubtitle = createSubtitlePicker(timings);
+        const LEAD = 0.05;
+        let lastKey = "__none__";
+
+        function render(){
+            const now = Math.max(0, audioContext.currentTime - startAt);
+            const lookup = Math.min(finalAudio.duration, now + LEAD);
+            const entry = pickSubtitle(lookup);
+            const key = entry ? entry.text : "";
+
+            if(key !== lastKey){
+                lastKey = key;
+                drawFrame(entry ? getSubtitleLayout(ctx, entry.text) : null);
+            }else{
+                // captureStream이 항상 새 프레임을 받도록 가볍게 다시 그립니다.
+                drawFrame(entry ? getSubtitleLayout(ctx, entry.text) : null);
+            }
+
+            const percent = clamp(Math.floor(now / finalAudio.duration * 100), 0, 100);
+            setStatus(
+                `2/2 영상 생성 중... ${percent}%`,
+                `${formatTime(now)} / ${formatTime(finalAudio.duration)}`,
+                warnings.join("\n")
+            );
+
+            if(now < finalAudio.duration + 0.3){
+                frameId = requestAnimationFrame(render);
+            }
+        }
+        render();
+
+        // 재생 종료 감지: onended가 늦거나 누락돼도 멈추지 않도록 감시 타이머를 함께 사용
+        await new Promise(resolve => {
+            let done = false;
+            const finish = () => { if(!done){ done = true; resolve(); } };
+            sourceNode.onended = finish;
+            const watch = setInterval(() => {
+                const elapsed = audioContext.currentTime - startAt;
+                if(elapsed >= finalAudio.duration + 0.6){
+                    clearInterval(watch);
+                    finish();
+                }
+            }, 250);
+            setTimeout(() => clearInterval(watch), (finalAudio.duration + 30) * 1000);
+        });
+
+        if(frameId) cancelAnimationFrame(frameId);
+
+        // 마지막 자막을 잠깐 유지한 뒤 정리
+        const lastEntry = timings[timings.length - 1];
+        for(let i = 0; i < 12; i++){
+            drawFrame(getSubtitleLayout(ctx, lastEntry.text));
+            await sleep(33);
+        }
+        for(let i = 0; i < 9; i++){
+            drawFrame(null);
+            await sleep(33);
+        }
+
+        if(recorder.state !== "inactive"){
+            try{ recorder.requestData(); }catch(e){}
+            recorder.stop();
+        }
+        await stopped;
+
+        if(!chunks.length) throw new Error("녹화된 데이터가 없습니다. 다시 시도해주세요.");
+
+        const blob = new Blob(chunks, { type: recorder.mimeType || "video/webm" });
+
+        if(lastObjectUrl) URL.revokeObjectURL(lastObjectUrl);
+        lastObjectUrl = URL.createObjectURL(blob);
+
+        video.src = lastObjectUrl;
+        video.load();
+        downloadLink.href = lastObjectUrl;
+        downloadLink.download = "longform_16x9.webm";
+        downloadLink.style.display = "inline";
+
+        setStatus(
+            "영상 생성 완료",
+            `길이 ${formatTime(finalAudio.duration)} / 용량 ${(blob.size / 1048576).toFixed(1)}MB`,
+            warnings.join("\n")
+        );
+
+    }catch(error){
+        console.error(error);
+        setStatus("생성을 완료하지 못했습니다.", error.message || String(error));
+    }finally{
+        if(visibilityHandler) document.removeEventListener("visibilitychange", visibilityHandler);
+        if(frameId) cancelAnimationFrame(frameId);
+
+        generateButton.disabled = false;
+        applyButton.disabled = false;
+        saveButton.disabled = false;
+
+        try{ if(sourceNode) sourceNode.disconnect(); }catch(e){}
+        try{ if(videoStream) videoStream.getTracks().forEach(t => t.stop()); }catch(e){}
+        try{ if(mixedStream) mixedStream.getTracks().forEach(t => t.stop()); }catch(e){}
+        try{ if(audioContext && audioContext.state !== "closed") await audioContext.close(); }catch(e){}
+    }
+}
+
+/* =========================================================
+   19. 이벤트
+========================================================= */
+saveButton.addEventListener("click", () => { saveSettings().catch(e => setStatus("오류", e.message)); });
+applyButton.addEventListener("click", () => { applyManualSubtitles().catch(e => setStatus("오류", e.message)); });
+generateButton.addEventListener("click", generate);
+
+// 시작 화면
+ctx.fillStyle = "#000";
+ctx.fillRect(0, 0, 1920, 1080);
+</script>
+</body>
+</html>
